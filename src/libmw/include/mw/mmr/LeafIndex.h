@@ -7,7 +7,7 @@
 #include <mw/common/Macros.h>
 #include <mw/common/Traits.h>
 #include <mw/mmr/Index.h>
-#include <mw/util/BitUtil.h>
+#include <bitset>
 #include <limits>
 
 MMR_NAMESPACE
@@ -23,7 +23,7 @@ public:
 
     static LeafIndex At(const uint64_t leafIndex) noexcept
     {
-        return LeafIndex(leafIndex, (2 * leafIndex) - BitUtil::CountBitsSet(leafIndex));
+        return LeafIndex(leafIndex, (2 * leafIndex) - std::bitset<64>(leafIndex).count());
     }
 
     bool operator<(const LeafIndex& rhs) const noexcept { return m_leafIndex < rhs.m_leafIndex; }

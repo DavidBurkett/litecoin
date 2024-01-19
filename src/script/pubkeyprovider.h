@@ -49,9 +49,6 @@ public:
     /** Whether this represent multiple public keys at different positions. */
     virtual bool IsRange() const = 0;
 
-    /** Whether this represents MWEB public keys. */
-    virtual bool IsMWEB() const = 0;
-
     /** Get the size of the generated public key(s) in bytes (33 or 65). */
     virtual size_t GetSize() const = 0;
 
@@ -76,13 +73,9 @@ class OriginPubkeyProvider final : public PubkeyProvider
     std::string OriginString() const
     {
         std::string origin_string = HexStr(m_origin.fingerprint) + FormatHDKeypath(m_origin.hdkeypath);
-        // MW: TODO - The m_provider for MWEB descriptors would be BIP32PubkeyProvider or ConstPubkeyProvider, not MWEBPubkeyProvider. A better solution is needed
-        if (m_provider->IsMWEB()) {
-            origin_string += "/x";
 
-            if (m_origin.hdkeypath.mweb_index.has_value()) {
-                origin_string += "/" + std::to_string(m_origin.hdkeypath.mweb_index.value());
-            }
+        if (m_origin.hdkeypath.mweb_index.has_value()) {
+            origin_string += "/x/" + std::to_string(m_origin.hdkeypath.mweb_index.value());
         }
 
         return origin_string;
@@ -98,7 +91,6 @@ public:
         return true;
     }
     bool IsRange() const override { return m_provider->IsRange(); }
-    bool IsMWEB() const override { return m_provider->IsMWEB(); }
     size_t GetSize() const override { return m_provider->GetSize(); }
     std::string ToString() const override { return "[" + OriginString() + "]" + m_provider->ToString(); }
     bool ToPrivateString(const SigningProvider& arg, std::string& ret) const override
@@ -146,7 +138,6 @@ public:
         return true;
     }
     bool IsRange() const override { return false; }
-    bool IsMWEB() const override { return false; }
     size_t GetSize() const override { return m_pubkey.size(); }
     std::string ToString() const override { return m_xonly ? HexStr(m_pubkey).substr(2) : HexStr(m_pubkey); }
     bool ToPrivateString(const SigningProvider& arg, std::string& ret) const override
@@ -226,7 +217,6 @@ class BIP32PubkeyProvider final : public PubkeyProvider
 public:
     BIP32PubkeyProvider(uint32_t exp_index, const CExtPubKey& extkey, HDKeyPath path, DeriveType derive) : PubkeyProvider(exp_index), m_root_extkey(extkey), m_path(std::move(path)), m_derive(derive) {}
     bool IsRange() const override { return m_derive != DeriveType::NO; }
-    bool IsMWEB() const override { return false; }
     size_t GetSize() const override { return 33; }
     bool GetPubKey(int pos, const SigningProvider& arg, CPubKey& key_out, KeyOriginInfo& final_info_out, const DescriptorCache* read_cache = nullptr, DescriptorCache* write_cache = nullptr) const override
     {

@@ -1332,6 +1332,13 @@ PackageMempoolAcceptResult MemPoolAccept::AcceptPackage(const Package& package, 
                    std::inserter(unconfirmed_parent_txids, unconfirmed_parent_txids.end()),
                    [](const auto& tx) { return tx->GetHash(); });
 
+    std::unordered_set<mw::Hash, SaltedMWHashHasher> unconfirmed_mweb_output_ids;
+    for (auto iter = package.cbegin(); iter != (package.cend() - 1); iter++) {
+        for (const mw::Output& mweb_output : (*iter)->mweb_tx.GetOutputs()) {
+            unconfirmed_mweb_output_ids.emplace(mweb_output.GetOutputID());
+        }
+    }
+
     // All child inputs must refer to a preceding package transaction or a confirmed UTXO. The only
     // way to verify this is to look up the child's inputs in our current coins view (not including
     // mempool), and enforce that all parents not present in the package be available at chain tip.
@@ -1347,10 +1354,15 @@ PackageMempoolAcceptResult MemPoolAccept::AcceptPackage(const Package& package, 
     // This should be connecting directly to CoinsTip, not to m_viewmempool, because we specifically
     // require inputs to be confirmed if they aren't in the package.
     m_view.SetBackend(m_active_chainstate.CoinsTip());
-    const auto package_or_confirmed = [this, &unconfirmed_parent_txids](const auto& input) {
-         return unconfirmed_parent_txids.count(input.prevout.hash) > 0 || m_view.HaveCoin(input.prevout);
+    const auto package_or_confirmed = [this, &unconfirmed_parent_txids, &unconfirmed_mweb_output_ids](const GenericInput& input) {
+        if (input.IsMWEB()) {
+            return unconfirmed_mweb_output_ids.count(input.ToMWEB()) > 0 || m_view.HaveCoin(input.GetID());
+        } else {
+            return unconfirmed_parent_txids.count(input.GetTxIn().prevout.hash) > 0 || m_view.HaveCoin(input.GetID());
+        }
     };
-    if (!std::all_of(child->vin.cbegin(), child->vin.cend(), package_or_confirmed)) { // MW: TODO - Use child->GetInputs()
+    std::vector<GenericInput> child_inputs = child->GetInputs();
+    if (!std::all_of(child_inputs.cbegin(), child_inputs.cend(), package_or_confirmed)) {
         package_state.Invalid(PackageValidationResult::PCKG_POLICY, "package-not-child-with-unconfirmed-parents");
         return PackageMempoolAcceptResult(package_state, {});
     }

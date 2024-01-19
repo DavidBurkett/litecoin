@@ -1,5 +1,6 @@
 #include <mw/mmr/Index.h>
 #include <mw/mmr/LeafIndex.h>
+#include <mw/util/BitUtil.h>
 
 using namespace mmr;
 

@@ -80,6 +80,20 @@ public:
     }
 };
 
+class SaltedMWHashHasher
+{
+private:
+    /** Salt */
+    const uint64_t k0, k1;
+
+public:
+    SaltedMWHashHasher();
+
+    size_t operator()(const mw::Hash& output_id) const {
+        return SipHashUint256(k0, k1, uint256(output_id.vec()));
+    }
+};
+
 struct FilterHeaderHasher
 {
     size_t operator()(const uint256& hash) const { return ReadLE64(hash.begin()); }

@@ -21,23 +21,6 @@ public:
         return x;
     }
 
-    //
-    // Counts the number of bits set to 1.
-    //
-    static uint8_t CountBitsSet(const uint64_t input) noexcept
-    {
-        // MW: TODO - use __popcnt64
-        uint64_t n = input;
-        uint8_t count = 0;
-        while (n)
-        {
-            count += (uint8_t)(n & 1);
-            n >>= 1;
-        }
-
-        return count;
-    }
-
     static uint8_t CountRightmostZeros(const uint64_t input) noexcept
     {
         assert(input != 0);

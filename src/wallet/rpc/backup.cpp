@@ -1198,7 +1198,7 @@ static UniValue ProcessImport(CWallet& wallet, const UniValue& data, const int64
         // Check whether we have any work to do
         for (const GenericAddress& dest_addr : script_pub_keys) {
             if (wallet.IsMine(dest_addr) & ISMINE_SPENDABLE) {
-                throw JSONRPCError(RPC_WALLET_ERROR, "The wallet already contains the private key for this address or script (\"" + HexStr(dest_addr.GetScript()) + "\")"); // MW: TODO - Handle MWEB addresses?
+                throw JSONRPCError(RPC_WALLET_ERROR, "The wallet already contains the private key for this address or script (\"" + dest_addr.Encode() + "\")");
             }
         }
 
