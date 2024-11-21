@@ -6,7 +6,6 @@
 #include <mw/mmr/MMRUtil.h>
 #include <mw/mmr/LeafSet.h>
 #include <mw/mmr/Segment.h>
-#include <boost/optional/optional_io.hpp>
 
 #include <test_framework/TestMWEB.h>
 
@@ -14,6 +13,16 @@ namespace std {
 ostream& operator<<(ostream& os, const mw::Hash& hash)
 {
     os << hash.ToHex();
+    return os;
+}
+
+template<typename T>
+ostream& operator<<(ostream& os, const std::optional<T>& opt)
+{
+    if (opt)
+        os << *opt;
+    else
+        os << "(none)";
     return os;
 }
 } // namespace std
@@ -27,18 +36,13 @@ struct MMRWithLeafset {
 
 static mmr::Leaf DeterministicLeaf(const uint64_t i)
 {
-    std::vector<uint8_t> serialized{
-        uint8_t(i >> 24),
-        uint8_t(i >> 16),
-        uint8_t(i >> 8),
-        uint8_t(i)};
-    return mmr::Leaf::Create(mmr::LeafIndex::At(i), serialized);
+    return mmr::Leaf::Create(mmr::LeafIndex::At(i), Hasher().Append(i).hash().vec());
 }
 
-static MMRWithLeafset BuildDetermininisticMMR(const uint64_t num_leaves)
+static MMRWithLeafset BuildDetermininisticMMR(const FilePath& dir, const uint64_t num_leaves)
 {
     auto mmr = std::make_shared<MemMMR>();
-    auto leafset = LeafSet::Open(m_path_root, 0);
+    auto leafset = LeafSet::Open(dir, 0);
     for (size_t i = 0; i < num_leaves; i++) {
         mmr->AddLeaf(DeterministicLeaf(i));
         leafset->Add(mmr::LeafIndex::At(i));
@@ -51,7 +55,7 @@ BOOST_FIXTURE_TEST_SUITE(TestSegment, MWEBTestingSetup)
 
 BOOST_AUTO_TEST_CASE(AssembleSegment)
 {
-    auto mmr_with_leafset = BuildDetermininisticMMR(15);
+    auto mmr_with_leafset = BuildDetermininisticMMR(m_path_root, 15);
     auto mmr = mmr_with_leafset.mmr;
     auto leafset = mmr_with_leafset.leafset;
     Segment segment = SegmentFactory::Assemble(
@@ -62,10 +66,10 @@ BOOST_AUTO_TEST_CASE(AssembleSegment)
     );
 
     std::vector<mw::Hash> expected_leaves{
-        DeterministicLeaf(0).GetHash(),
-        DeterministicLeaf(1).GetHash(),
-        DeterministicLeaf(2).GetHash(),
-        DeterministicLeaf(3).GetHash()
+        Hasher().Append<uint64_t>(0).hash(),
+        Hasher().Append<uint64_t>(1).hash(),
+        Hasher().Append<uint64_t>(2).hash(),
+        Hasher().Append<uint64_t>(3).hash(),
     };
     BOOST_REQUIRE_EQUAL_COLLECTIONS(segment.leaves.begin(), segment.leaves.end(), expected_leaves.begin(), expected_leaves.end());
 
@@ -78,8 +82,12 @@ BOOST_AUTO_TEST_CASE(AssembleSegment)
     BOOST_REQUIRE_EQUAL(expected_lower_peak, segment.lower_peak);
 
     // Verify PMMR root can be fully recomputed
-    mw::Hash n2 = MMRUtil::CalcParentHash(mmr::Index::At(2), segment.leaves[0], segment.leaves[1]);
-    mw::Hash n5 = MMRUtil::CalcParentHash(mmr::Index::At(5), segment.leaves[2], segment.leaves[3]);
+    mw::Hash n0 = mmr::Leaf::CalcHash(mmr::LeafIndex::At(0), segment.leaves[0].vec());
+    mw::Hash n1 = mmr::Leaf::CalcHash(mmr::LeafIndex::At(1), segment.leaves[1].vec());
+    mw::Hash n2 = MMRUtil::CalcParentHash(mmr::Index::At(2), n0, n1);
+    mw::Hash n3 = mmr::Leaf::CalcHash(mmr::LeafIndex::At(2), segment.leaves[2].vec());
+    mw::Hash n4 = mmr::Leaf::CalcHash(mmr::LeafIndex::At(3), segment.leaves[3].vec());
+    mw::Hash n5 = MMRUtil::CalcParentHash(mmr::Index::At(5), n3, n4);
     mw::Hash n6 = MMRUtil::CalcParentHash(mmr::Index::At(6), n2, n5);
     mw::Hash n14 = MMRUtil::CalcParentHash(mmr::Index::At(14), n6, segment.hashes[0]);
     mw::Hash root = MMRUtil::CalcParentHash(Index::At(26), n14, *segment.lower_peak);

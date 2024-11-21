@@ -661,6 +661,14 @@ public:
         EXCLUSIVE_LOCKS_REQUIRED(!m_chainstate_mutex)
         LOCKS_EXCLUDED(::cs_main);
 
+    /**
+     * Make the provided index the tip of the chain, regardless of the amount of work.
+     * 
+     * Unlike ActivateBestChain, this only updates the provided coins view, not the active chain state.
+     * No calls to any validationinterface callbacks will be made.
+     */
+    bool ActivateArbitraryChain(BlockValidationState& state, CBlockIndex* pindex, CCoinsViewCache& view) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
     bool AcceptBlock(const std::shared_ptr<const CBlock>& pblock, BlockValidationState& state, CBlockIndex** ppindex, bool fRequested, const FlatFilePos* dbp, bool* fNewBlock, bool min_pow_checked) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     // Block (dis)connection on a given view:

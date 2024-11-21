@@ -3159,6 +3159,52 @@ bool Chainstate::ActivateBestChain(BlockValidationState& state, std::shared_ptr<
     return true;
 }
 
+bool Chainstate::ActivateArbitraryChain(BlockValidationState& state, CBlockIndex* pindex, CCoinsViewCache& view)
+{
+    AssertLockHeld(cs_main);
+
+    const CBlockIndex* pindexFork = m_chain.FindFork(pindex);
+    const CBlockIndex* pindexTip = m_chain.Tip();
+
+    // Disconnect blocks from view until we reach the fork block
+    while (pindexTip->GetBlockHash() != pindexFork->GetBlockHash()) {
+        CBlock block;
+        if (!ReadBlockFromDisk(block, pindexTip, m_chainman.GetConsensus())) {
+            return error("ActivateArbitraryChain(): Failed to read block %s", pindexTip->GetBlockHash().ToString());
+        }
+
+        if (DisconnectBlock(block, pindexTip, view) != DISCONNECT_OK) {
+            return error("ActivateArbitraryChain(): DisconnectBlock %s failed", pindexTip->GetBlockHash().ToString());
+        }
+
+        pindexTip = pindexTip->pprev;
+    }
+
+    // Build list of new blocks to connect.
+    std::vector<CBlockIndex*> vpindexToConnect;
+    vpindexToConnect.reserve(pindex->nHeight - pindexTip->nHeight);
+
+    CBlockIndex* pindexIter = pindex;
+    while (pindexIter && pindexIter->nHeight != pindexTip->nHeight) {
+        vpindexToConnect.push_back(pindexIter);
+        pindexIter = pindexIter->pprev;
+    }
+
+    // Connect the new blocks
+    for (CBlockIndex* pindexConnect : reverse_iterate(vpindexToConnect)) {
+        CBlock block;
+        if (!ReadBlockFromDisk(block, pindexConnect, m_chainman.GetConsensus())) {
+            return error("ActivateArbitraryChain(): Failed to read block %s", pindexConnect->GetBlockHash().ToString());
+        }
+
+        if (!ConnectBlock(block, state, pindexConnect, view, true)) {
+            return error("ActivateArbitraryChain(): ConnectBlock %s failed", pindexConnect->GetBlockHash().ToString());
+        }
+    }
+
+    return true;
+}
+
 bool Chainstate::PreciousBlock(BlockValidationState& state, CBlockIndex* pindex)
 {
     AssertLockNotHeld(m_chainstate_mutex);

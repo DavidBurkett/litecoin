@@ -39,17 +39,14 @@ mw::Transaction::CPtr TxBuilder::BuildTx(
     }
 
     // Sign inputs
-    LOG_INFO("Creating inputs");
     TxBuilder::Inputs inputs = CreateInputs(input_coins);
 
     // Create outputs
-    LOG_INFO("Creating outputs");
     TxBuilder::Outputs outputs = CreateOutputs(recipients);
     output_coins = outputs.coins;
 
     // Total kernel offset is split between raw kernel_offset and the kernel's blinding factor.
     // sum(output.blind) - sum(input.blind) = kernel_offset + sum(kernel.blind)
-    LOG_INFO("Calculating kernel blind");
     BlindingFactor kernel_offset = BlindingFactor::Random();
     BlindingFactor kernel_blind = Blinds()
         .Add(outputs.total_blind)
@@ -61,7 +58,6 @@ mw::Transaction::CPtr TxBuilder::BuildTx(
     SecretKey stealth_blind = SecretKey::Random();
 
     // Create the kernel
-    LOG_INFO("Creating kernel");
     mw::Kernel kernel = mw::Kernel::Create(
         kernel_blind,
         std::make_optional(stealth_blind),
@@ -79,7 +75,6 @@ mw::Transaction::CPtr TxBuilder::BuildTx(
         .Total();
 
     // Build the transaction
-    LOG_INFO("Creating tx");
     return mw::Transaction::Create(
         std::move(kernel_offset),
         std::move(stealth_offset),
@@ -133,14 +128,12 @@ TxBuilder::Outputs TxBuilder::CreateOutputs(const std::vector<mw::Recipient>& re
     for (const mw::Recipient& recipient : recipients) {
         BlindingFactor raw_blind;
         SecretKey ephemeral_key = SecretKey::Random();
-        LOG_INFO("Creating output");
         mw::Output output = mw::Output::Create(
             &raw_blind,
             ephemeral_key,
             recipient.address,
             recipient.amount
         );
-        LOG_INFO("Output created");
 
         output_blinds.Add(Pedersen::BlindSwitch(raw_blind, recipient.amount));
         output_keys.Add(ephemeral_key);

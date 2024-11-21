@@ -58,8 +58,9 @@ def make_utxo(test_framework, node, amount, confirmed=True, scriptPubKey=DUMMY_P
 
     return COutPoint(int(txid, 16), 0)
 
-def get_hogex_tx(node: TestNode) -> Optional[CTransaction]:
-    best_block = node.getblock(node.getbestblockhash(), 2)
+def get_hogex_tx(node: TestNode, block_hash = None) -> Optional[CTransaction]:
+    block_hash = block_hash or node.getbestblockhash()
+    best_block = node.getblock(block_hash, 2)
     hogex_tx = from_hex(CTransaction(), best_block['tx'][-1]['hex'])
 
     if hogex_tx.is_valid() and hogex_tx.hogex:
@@ -76,8 +77,9 @@ def get_hog_addr_txout(node: TestNode) -> Optional[CTxOut]:
     
     return hogex_tx.vout[0]
 
-def get_mweb_header_tip(node: TestNode) -> Optional[MWEBHeader]:
-    best_block = node.getblock(node.getbestblockhash(), 2)
+def get_mweb_header(node: TestNode, block_hash = None) -> Optional[MWEBHeader]:
+    block_hash = block_hash or node.getbestblockhash()
+    best_block = node.getblock(block_hash, 2)
     if not 'mweb' in best_block:
         return None
 

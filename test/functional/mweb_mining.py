@@ -8,7 +8,7 @@ from test_framework.blocktools import (create_coinbase, NORMAL_GBT_REQUEST_PARAM
 from test_framework.messages import (CBlock, MWEBBlock)
 from test_framework.test_framework import LitecoinTestFramework
 from test_framework.util import assert_equal
-from test_framework.ltc_util import create_hogex, get_mweb_header_tip
+from test_framework.ltc_util import create_hogex, get_mweb_header
 
 class MWEBMiningTest(LitecoinTestFramework):
     def set_test_params(self):
@@ -31,14 +31,14 @@ class MWEBMiningTest(LitecoinTestFramework):
         next_height = int(gbt["height"])        
 
         # Build MWEB block
-        mweb_header = get_mweb_header_tip(node)
+        mweb_header = get_mweb_header(node)
         mweb_header.height = next_height
         mweb_header.rehash()
         mweb_block = MWEBBlock(mweb_header)
         
         # Build coinbase and HogEx txs
         coinbase_tx = create_coinbase(height=next_height)
-        hogex_tx = create_hogex(node, mweb_header.hash)
+        hogex_tx = create_hogex(node, mweb_header.hash.to_hex())
         vtx = [coinbase_tx, hogex_tx]
 
         # Build block proposal
@@ -49,7 +49,7 @@ class MWEBMiningTest(LitecoinTestFramework):
         block.nBits = int(gbt["bits"], 16)
         block.nNonce = 0
         block.vtx = vtx
-        block.mweb_block = mweb_block.serialize().hex()
+        block.mweb_block = mweb_block
         block.hashMerkleRoot = block.calc_merkle_root()
 
         # Call getblocktemplate with the block proposal

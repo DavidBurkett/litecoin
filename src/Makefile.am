@@ -688,6 +688,7 @@ libbitcoin_common_a_SOURCES = \
   libmw/src/mmr/PMMRCache.cpp \
   libmw/src/mmr/PMMR.cpp \
   libmw/src/mmr/PruneList.cpp \
+  libmw/src/mmr/Segment.cpp \
   libmw/src/node/CoinsViewCache.cpp \
   libmw/src/node/CoinsViewDB.cpp \
   libmw/src/wallet/Keychain.cpp \

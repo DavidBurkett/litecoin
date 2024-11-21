@@ -202,6 +202,7 @@ template<typename Stream> inline void Serialize(Stream& s, int64_t a ) { ser_wri
 template<typename Stream> inline void Serialize(Stream& s, uint64_t a) { ser_writedata64(s, a); }
 template<typename Stream, int N> inline void Serialize(Stream& s, const char (&a)[N]) { s.write(MakeByteSpan(a)); }
 template<typename Stream, int N> inline void Serialize(Stream& s, const unsigned char (&a)[N]) { s.write(MakeByteSpan(a)); }
+template<typename Stream> inline void Serialize(Stream& s, const Span<const char>& span) { s.write(AsBytes(span)); }
 template<typename Stream> inline void Serialize(Stream& s, const Span<const unsigned char>& span) { s.write(AsBytes(span)); }
 template<typename Stream> inline void Serialize(Stream& s, const Span<unsigned char>& span) { s.write(AsBytes(span)); }
 
