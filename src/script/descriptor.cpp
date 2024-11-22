@@ -206,11 +206,6 @@ public:
         return false;
     }
 
-    bool IsMWEB() const override
-    {
-        return false;
-    }
-
     virtual bool ToStringSubScriptHelper(const SigningProvider* arg, std::string& ret, const StringType type, const DescriptorCache* cache = nullptr) const
     {
         size_t pos = 0;
@@ -265,7 +260,7 @@ public:
         return ret;
     }
 
-    bool ToNormalizedString(const SigningProvider& arg, std::string& out, const DescriptorCache* cache) const override final
+    bool ToNormalizedString(const SigningProvider& arg, std::string& out, const DescriptorCache* cache) const final
     {
         bool ret = ToStringHelper(&arg, out, StringType::NORMALIZED, cache);
         out = AddChecksum(out);
@@ -423,29 +418,15 @@ public:
 /** A parsed mweb(P) descriptor. */
 class MWEBDescriptor final : public DescriptorImpl
 {
-    std::optional<uint32_t> m_mweb_index;
-
     //! The master scan secret key
-    mutable std::optional<SecretKey> m_scan_secret{std::nullopt};
-    //! The master spend public key
-    mutable std::optional<PublicKey> m_spend_pubkey{std::nullopt};
+    SecretKey m_master_scan_secret;
+    //! The (optional) index of the MWEB subaddress represented by this descriptor.
+    std::optional<uint32_t> m_mweb_index;
 
 protected:
     std::vector<GenericAddress> MakeScripts(const std::vector<CPubKey>& keys, Span<const CScript>, FlatSigningProvider& out) const override
     {
-        if (keys.size() == 1) {
-            PublicKey B = keys[0].begin();
-            CKey scan_key;
-            if (m_pubkey_args[0]->GetPrivKey(-1, out, scan_key)) {
-                PublicKey A = B.Mul(scan_key.begin());
-                return Vector(GenericAddress(StealthAddress(A, B)));
-            }
-        } else if (keys.size() == 2) {
-            PublicKey A = keys[0].begin();
-            PublicKey B = keys[1].begin();
-            return Vector(GenericAddress(StealthAddress(A, B)));
-        }
-        return {};
+        return std::vector<GenericAddress>{};
     }
 
     bool ToStringSubScriptHelper(const SigningProvider* arg, std::string& ret, const StringType type, const DescriptorCache* cache = nullptr) const override
@@ -458,52 +439,111 @@ public:
     // 'providers' will either be:
     //   * a single xpub where child 0' is the master scan key, and child 1' is the master spend key
     //   * 2 pubkeys where the first is the scan pubkey and the second is the spend pubkey of a single stealth address
-    MWEBDescriptor(std::vector<std::unique_ptr<PubkeyProvider>> providers, const std::optional<uint32_t>& mweb_index)
-        : DescriptorImpl(std::move(providers), "mweb"), m_mweb_index(mweb_index) {}
+    MWEBDescriptor(std::unique_ptr<PubkeyProvider> master_scan_pk_provider, std::unique_ptr<PubkeyProvider> spend_pk_provider, CKey master_scan_key, const std::optional<uint32_t>& mweb_index)
+        : DescriptorImpl(Vector(std::move(master_scan_pk_provider), std::move(spend_pk_provider)), "mweb"), m_master_scan_secret(master_scan_key.begin()), m_mweb_index(mweb_index) {}
 
-    bool IsRange() const final { return m_pubkey_args.size() == 1 && !m_mweb_index.has_value(); }
-    bool IsMWEB() const final { return true; }
+    bool IsRange() const final { return !m_mweb_index.has_value(); }
     std::optional<OutputType> GetOutputType() const final { return OutputType::MWEB; }
     bool IsSingleType() const final { return true; }
+
+    bool ToStringHelper(const SigningProvider* arg, std::string& out, const StringType type, const DescriptorCache* cache = nullptr) const final
+    {
+        std::string scan_key_str;
+        switch (type) {
+            case StringType::PRIVATE:
+                if (!m_pubkey_args[0]->ToPrivateString(*arg, scan_key_str)) return false;
+                break;
+            case StringType::NORMALIZED:
+            case StringType::PUBLIC: {
+                CKey master_scan_key;
+                master_scan_key.Set(m_master_scan_secret.vec().begin(), m_master_scan_secret.vec().end(), true);
+
+                std::string origin_str = "";
+                KeyOriginInfo origin_info;
+                if (m_pubkey_args[0]->GetKeyOrigin(-1, origin_info)) {
+                    origin_str = "[" + HexStr(origin_info.fingerprint) + FormatHDKeypath(origin_info.hdkeypath) + "]";
+                }
+
+                scan_key_str = origin_str + EncodeSecret(master_scan_key);
+                break;
+            }
+        }
+
+        std::string spend_key_str;
+        switch (type) {
+            case StringType::NORMALIZED:
+                if (!m_pubkey_args[1]->ToNormalizedString(*arg, spend_key_str, cache)) return false;
+                break;
+            case StringType::PRIVATE:
+                if (!m_pubkey_args[1]->ToPrivateString(*arg, spend_key_str)) return false;
+                break;
+            case StringType::PUBLIC:
+                spend_key_str = m_pubkey_args[1]->ToString();
+                break;
+        }
+
+        std::string subscript;
+        if (!ToStringSubScriptHelper(arg, subscript, type, cache)) return false;
+        if (!subscript.empty()) subscript = ',' + subscript;
+
+        out = "mweb(" + scan_key_str + "," + spend_key_str + subscript + ")";
+        LogPrintf("DEBUG: Output descriptor of string type %d: %s\n", (int)type, out);
+        return true;
+    }
 
     bool ExpandHelper(int pos, const SigningProvider& provider, const DescriptorCache* read_cache, std::vector<GenericAddress>& output_scripts, FlatSigningProvider& out, DescriptorCache* write_cache) const
     {
         output_scripts.clear();
         if (m_mweb_index) pos = *m_mweb_index;
 
-        if (m_pubkey_args.size() == 1) {
-            std::optional<StealthAddress> stealth_address = GetStealthAddress(provider, pos, read_cache, write_cache);
-            if (!stealth_address.has_value()) return false;
-            CPubKey spend_pubkey = CPubKey(stealth_address->B().vec());
-            output_scripts = {*stealth_address};
+        if (pos == -1) {
+            CPubKey master_scan_pk(PublicKey::From(m_master_scan_secret).vec());
+            out.pubkeys.emplace(master_scan_pk.GetID(), master_scan_pk);
 
-            CPubKey tmp;
-            KeyOriginInfo origin_info;
-            if (!m_pubkey_args[0]->GetPubKey(pos, provider, tmp, origin_info, read_cache, write_cache)) return false;
-            if (origin_info.hdkeypath.path.size() > 0) {
-                origin_info.hdkeypath.path.resize(origin_info.hdkeypath.path.size() - 1);
+            KeyOriginInfo master_scan_origin;
+            if (m_pubkey_args[0]->GetKeyOrigin(-1, master_scan_origin)) {
+                out.origins.emplace(master_scan_pk.GetID(), std::make_pair<CPubKey, KeyOriginInfo>(std::move(master_scan_pk), std::move(master_scan_origin)));
             }
-            origin_info.hdkeypath.mweb_index = pos;
 
-            out.pubkeys.emplace(spend_pubkey.GetID(), spend_pubkey);
-            out.origins.emplace(spend_pubkey.GetID(), std::make_pair<CPubKey, KeyOriginInfo>(std::move(spend_pubkey), std::move(origin_info)));
-        } else if (m_pubkey_args.size() == 2) {
-            CPubKey scan_pubkey;
-            KeyOriginInfo scan_origin_info;
-            if (!m_pubkey_args[0]->GetPubKey(pos, provider, scan_pubkey, scan_origin_info, read_cache, write_cache)) return false;
-
-            CPubKey spend_pubkey;
-            KeyOriginInfo spend_origin_info;
-            if (!m_pubkey_args[1]->GetPubKey(pos, provider, spend_pubkey, spend_origin_info, read_cache, write_cache)) return false;
-
-            output_scripts = {StealthAddress(PublicKey(scan_pubkey.begin()), PublicKey(spend_pubkey.begin()))};
-
-            out.pubkeys.emplace(scan_pubkey.GetID(), scan_pubkey);
-            out.origins.emplace(scan_pubkey.GetID(), std::make_pair<CPubKey, KeyOriginInfo>(std::move(scan_pubkey), std::move(scan_origin_info)));
-
-            out.pubkeys.emplace(spend_pubkey.GetID(), spend_pubkey);
-            out.origins.emplace(spend_pubkey.GetID(), std::make_pair<CPubKey, KeyOriginInfo>(std::move(spend_pubkey), std::move(spend_origin_info)));
+            return true;
         }
+
+        std::optional<PublicKey> master_spend_pubkey = GetMasterSpendPubKey(provider, read_cache, write_cache);
+        if (!master_spend_pubkey) return false;
+
+        if (pos == -2) {
+            CPubKey master_spend_pk(master_spend_pubkey->vec());
+            out.pubkeys.emplace(master_spend_pubkey->GetID(), master_spend_pk);
+
+            KeyOriginInfo master_spend_origin;
+            if (m_pubkey_args[1]->GetKeyOrigin(-1, master_spend_origin)) {
+                out.origins.emplace(master_spend_pubkey->GetID(), std::make_pair<CPubKey, KeyOriginInfo>(std::move(master_spend_pk), std::move(master_spend_origin)));
+            }
+
+            return true;
+        }
+
+        SecretKey mi = Hasher(EHashTag::ADDRESS)
+            .Append<uint32_t>(pos)
+            .Append(m_master_scan_secret)
+            .hash();
+        PublicKey Bi = master_spend_pubkey->Add(mi);
+        PublicKey Ai = Bi.Mul(m_master_scan_secret);
+
+        output_scripts = {StealthAddress(Ai, Bi)};
+
+        CKeyID address_key_id = Bi.GetID();
+        CPubKey address_pk(Bi.vec());
+        out.pubkeys.emplace(address_key_id, address_pk);
+
+        KeyOriginInfo master_scan_origin;
+        if (m_pubkey_args[0]->GetKeyOrigin(-1, master_scan_origin)) {
+            KeyOriginInfo key_origin;
+            std::copy(master_scan_origin.fingerprint, master_scan_origin.fingerprint + sizeof(key_origin.fingerprint), key_origin.fingerprint);
+            key_origin.hdkeypath.mweb_index = pos;
+            out.origins.emplace(address_key_id, std::make_pair<CPubKey, KeyOriginInfo>(std::move(address_pk), std::move(key_origin)));
+        }
+
         return true;
     }
 
@@ -519,14 +559,27 @@ public:
 
     void ExpandPrivate(int pos, const SigningProvider& provider, FlatSigningProvider& out) const final
     {
-        std::optional<SecretKey> master_scan_secret = GetMasterScanSecret(provider, nullptr, nullptr);
-        std::optional<SecretKey> master_spend_key = GetMasterSpendKey(provider);
-        if (master_scan_secret.has_value() && master_spend_key.has_value()) {
+        if (pos == -1) {
+            CKey master_scan_key;
+            master_scan_key.Set(m_master_scan_secret.vec().begin(), m_master_scan_secret.vec().end(), true);
+            out.keys.emplace(master_scan_key.GetPubKey().GetID(), master_scan_key);
+            return;
+        }
+
+        std::optional<SecretKey> master_spend_secret = GetMasterSpendKey(provider);
+        if (master_spend_secret.has_value()) {
+            if (pos == -2) {
+                CKey master_spend_key;
+                master_spend_key.Set(master_spend_secret->vec().begin(), master_spend_secret->vec().end(), true);
+                out.keys.emplace(master_spend_key.GetPubKey().GetID(), master_spend_key);
+                return;
+            }
+
             SecretKey mi = Hasher(EHashTag::ADDRESS)
                                .Append<uint32_t>(pos)
-                               .Append(*master_scan_secret)
+                               .Append(m_master_scan_secret)
                                .hash();
-            SecretKey secret_key = SecretKeys::From(*master_spend_key).Add(mi).Total();
+            SecretKey secret_key = SecretKeys::From(*master_spend_secret).Add(mi).Total();
 
             CKey key;
             key.Set(secret_key.vec().begin(), secret_key.vec().end(), true);
@@ -535,78 +588,19 @@ public:
     }
 
 private:
-    std::optional<SecretKey> GetMasterScanSecret(const SigningProvider& signing_provider, const DescriptorCache* read_cache, DescriptorCache* write_cache) const
-    {
-        if (!m_scan_secret.has_value()) {
-            if (read_cache != nullptr) {
-                m_scan_secret = read_cache->GetCachedMWEBScanKey();
-            }
-        }
-
-        if (!m_scan_secret.has_value()) {
-            CKey scan_key;
-            if (!m_pubkey_args[0]->IsRange()) return std::nullopt;
-            if (!m_pubkey_args[0]->GetPrivKey(0x80000000L, signing_provider, scan_key)) return std::nullopt;
-            m_scan_secret = SecretKey(scan_key.begin());
-        }
-
-        if (write_cache != nullptr) {
-            write_cache->CacheMWEBMasterScanKey(*m_scan_secret);
-        }
-
-        return m_scan_secret;
-    }
-
     std::optional<PublicKey> GetMasterSpendPubKey(const SigningProvider& signing_provider, const DescriptorCache* read_cache, DescriptorCache* write_cache) const
     {
-        if (!m_spend_pubkey.has_value()) {
-            if (read_cache != nullptr) {
-                m_spend_pubkey = read_cache->GetCachedMWEBSpendPubKey();
-            }
-        }
-
-        if (!m_spend_pubkey.has_value()) {
-            CPubKey spend_pubkey;
-            KeyOriginInfo origin_info;
-            if (!m_pubkey_args[0]->IsRange()) return std::nullopt;
-            if (!m_pubkey_args[0]->GetPubKey(0x80000001L, signing_provider, spend_pubkey, origin_info, read_cache, write_cache)) return std::nullopt;
-            m_spend_pubkey = PublicKey(spend_pubkey.begin());
-        }
-
-        if (write_cache != nullptr) {
-            write_cache->CacheMWEBMasterSpendPubKey(*m_spend_pubkey);
-        }
-
-        return m_spend_pubkey;
+        CPubKey spend_pubkey;
+        KeyOriginInfo origin_info;
+        if (!m_pubkey_args[1]->GetPubKey(-1, signing_provider, spend_pubkey, origin_info, read_cache, write_cache)) return std::nullopt;
+        return PublicKey(spend_pubkey.begin());
     }
 
     std::optional<SecretKey> GetMasterSpendKey(const SigningProvider& signing_provider) const
     {
         CKey spend_key;
-        if (!m_pubkey_args[0]->IsRange()) return std::nullopt;
-        if (!m_pubkey_args[0]->GetPrivKey(0x80000001L, signing_provider, spend_key)) return std::nullopt;
+        if (!m_pubkey_args[1]->GetPrivKey(-1, signing_provider, spend_key)) return std::nullopt;
         return SecretKey(spend_key.begin());
-    }
-
-    std::optional<StealthAddress> GetStealthAddress(const SigningProvider& signing_provider, const uint32_t index, const DescriptorCache* read_cache, DescriptorCache* write_cache) const
-    {
-        std::optional<SecretKey> master_scan_secret = GetMasterScanSecret(signing_provider, read_cache, write_cache);
-        if (!master_scan_secret) {
-            return std::nullopt;
-        }
-        std::optional<PublicKey> master_spend_pubkey = GetMasterSpendPubKey(signing_provider, read_cache, write_cache);
-        if (!master_spend_pubkey) {
-            return std::nullopt;
-        }
-
-        SecretKey mi = Hasher(EHashTag::ADDRESS)
-                           .Append<uint32_t>(index)
-                           .Append(*master_scan_secret)
-                           .hash();
-        PublicKey Bi = master_spend_pubkey->Add(mi);
-        PublicKey Ai = Bi.Mul(*master_scan_secret);
-
-        return StealthAddress(Ai, Bi);
     }
 };
 
@@ -1217,34 +1211,59 @@ std::unique_ptr<DescriptorImpl> ParseScript(uint32_t& key_exp_index, Span<const 
         error = "Can only have wpkh() at top level or inside sh()";
         return nullptr;
     }
+
+    // MWEB: There are currently 2 supported variants of "mweb" descriptors:
+    // 1. mweb(master_scan, master_spend) - Ranged descriptor that represents all subaddresses derivable from the master keypair
+    // 2. mweb(master_scan, master_spend, address_idx) - A single stealth subaddress derived from the master keypair with index 'address_idx'
     if (ctx == ParseScriptContext::TOP && Func("mweb", expr)) {
-        auto pubkeyexpr = Expr(expr);
-        auto pubkey = ParsePubkey(key_exp_index, pubkeyexpr, ctx, out, error);
-        if (!pubkey) {
+        LogPrintf("DEBUG: Parsing master_scan_pk (%s)\n", std::string(expr.begin(), expr.end()));
+        auto scan_pk_expr = Expr(expr);
+        LogPrintf("DEBUG: scan_pk_expr=%s\n", std::string(scan_pk_expr.begin(), scan_pk_expr.end()));
+        auto master_scan_pk = ParsePubkey(key_exp_index, scan_pk_expr, ctx, out, error);
+        if (!master_scan_pk) {
+            error = strprintf("mweb(): %s", error);
+            return nullptr;
+        }
+
+        CKey master_scan_key;
+        if (master_scan_pk->IsRange() || !master_scan_pk->GetPrivKey(-1, out, master_scan_key)) {
+            error = strprintf("mweb(): private master_scan_key is needed.");
+            return nullptr;
+        }
+        key_exp_index++;
+
+        if (expr.empty() || !Const(",", expr)) {
+            error = strprintf("mweb(): expected ','");
+            return nullptr;
+        }
+
+        auto spend_pk_expr = Expr(expr);
+        LogPrintf("DEBUG: spend_pk_expr=%s\n", std::string(spend_pk_expr.begin(), spend_pk_expr.end()));
+        auto master_spend_pk = ParsePubkey(key_exp_index, spend_pk_expr, ctx, out, error);
+        if (!master_spend_pk) {
             error = strprintf("mweb(): %s", error);
             return nullptr;
         }
         key_exp_index++;
-        std::unique_ptr<PubkeyProvider> spend_pubkey;
+
         std::optional<uint32_t> mweb_index;
         if (!expr.empty()) {
+            LogPrintf("DEBUG: Parsing mweb_index (%s)\n", std::string(expr.begin(), expr.end()));
             if (!Const(",", expr)) {
                 error = strprintf("mweb(): expected ',', got '%c'", expr[0]);
                 return nullptr;
             }
+
             uint32_t index;
-            if ((spend_pubkey = ParsePubkey(key_exp_index, expr, ctx, out, error))) {
-                key_exp_index++;
-            } else if (ParseUInt32(std::string(expr.begin(), expr.end()), &index)) {
+            if (ParseUInt32(std::string(expr.begin(), expr.end()), &index)) {
                 mweb_index = index;
             } else {
                 error = strprintf("mweb(): expected pubkey or index, got '%s'", std::string(expr.begin(), expr.end()));
                 return nullptr;
             }
         }
-        auto providers = Vector(std::move(pubkey));
-        if (spend_pubkey) providers.emplace_back(std::move(spend_pubkey));
-        return std::make_unique<MWEBDescriptor>(std::move(providers), mweb_index);
+
+        return std::make_unique<MWEBDescriptor>(std::move(master_scan_pk), std::move(master_spend_pk), std::move(master_scan_key), mweb_index);
     } else if (Func("mweb", expr)) {
         error = "Can only have mweb() at top level";
         return nullptr;
@@ -1616,13 +1635,20 @@ std::unique_ptr<Descriptor> InferDescriptor(const GenericAddress& dest_addr, con
 {
     if (dest_addr.IsMWEB()) {
         const StealthAddress& mweb_address = dest_addr.GetMWEBAddress();
-        return std::make_unique<MWEBDescriptor>(
-            Vector(
-                InferPubkey(CPubKey(mweb_address.GetScanPubKey().vec()), ParseScriptContext::TOP, provider),
-                InferPubkey(CPubKey(mweb_address.GetSpendPubKey().vec()), ParseScriptContext::TOP, provider)
-            ),
-            std::nullopt
-        );
+
+        // MW: TODO - Should create MWEBDescriptor with master_scan_key, master_spend_pk, and address_idx
+        //CKeyID spend_key_id = mweb_address.GetSpendPubKey().GetID();
+        //KeyOriginInfo origin_info;
+        //if (provider.GetKeyOrigin(spend_key_id, origin_info)) {
+        //     return std::make_unique<MWEBDescriptor>(
+        //        InferPubkey(master_scan_key, ParseScriptContext::TOP, provider),
+        //        InferPubkey(master_spend_pk, ParseScriptContext::TOP, provider),
+        //         master_scan_key,
+        //        origin_info.hdkeypath.mweb_index
+        //    );
+        //}
+
+        return std::make_unique<AddressDescriptor>(mweb_address);
     }
 
     return InferScript(dest_addr.GetScript(), ParseScriptContext::TOP, provider);
@@ -1668,19 +1694,6 @@ bool DescriptorCache::GetCachedLastHardenedExtPubKey(uint32_t key_exp_pos, CExtP
     if (it == m_last_hardened_xpubs.end()) return false;
     xpub = it->second;
     return true;
-}
-
-
-void DescriptorCache::CacheMWEBMasterScanKey(const SecretKey& scan_key)
-{
-    LogPrintf("DEBUG: Caching MWEB scan key\n");
-    m_scan_key = scan_key;
-}
-
-void DescriptorCache::CacheMWEBMasterSpendPubKey(const PublicKey& spend_pubkey)
-{
-    LogPrintf("DEBUG: Caching MWEB spend pubkey\n");
-    m_spend_pubkey = spend_pubkey;
 }
 
 void DescriptorCache::CacheMWEBAddress(const uint32_t mweb_index, const StealthAddress& address)
@@ -1733,26 +1746,6 @@ DescriptorCache DescriptorCache::MergeAndDiff(const DescriptorCache& other)
         }
         CacheLastHardenedExtPubKey(lh_xpub_pair.first, lh_xpub_pair.second);
         diff.CacheLastHardenedExtPubKey(lh_xpub_pair.first, lh_xpub_pair.second);
-    }
-    if (other.GetCachedMWEBScanKey().has_value()) {
-        if (GetCachedMWEBScanKey().has_value()) {
-            if (GetCachedMWEBScanKey() != other.GetCachedMWEBScanKey()) {
-                throw std::runtime_error(std::string(__func__) + ": New cached MWEB scan key does not match already cached MWEB scan key");
-            }
-        } else {
-            CacheMWEBMasterScanKey(*other.GetCachedMWEBScanKey());
-            diff.CacheMWEBMasterScanKey(*other.GetCachedMWEBScanKey());
-        }
-    }
-    if (other.GetCachedMWEBSpendPubKey().has_value()) {
-        if (GetCachedMWEBSpendPubKey().has_value()) {
-            if (GetCachedMWEBSpendPubKey() != other.GetCachedMWEBSpendPubKey()) {
-                throw std::runtime_error(std::string(__func__) + ": New cached MWEB spend pubkey does not match already cached MWEB spend pubkey");
-            }
-        } else {
-            CacheMWEBMasterSpendPubKey(*other.GetCachedMWEBSpendPubKey());
-            diff.CacheMWEBMasterSpendPubKey(*other.GetCachedMWEBSpendPubKey());
-        }
     }
     for (const auto& address_pos_pair : other.GetCachedMWEBAddresses()) {
         StealthAddress address;

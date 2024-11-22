@@ -88,5 +88,9 @@ std::string FormatHDKeypath(const HDKeyPath& hdkeypath)
 
 std::string WriteHDKeypath(const HDKeyPath& hdkeypath)
 {
+    if (hdkeypath.mweb_index.has_value()) {
+        return strprintf("x/%i", *hdkeypath.mweb_index);
+    }
+
     return "m" + FormatHDKeypath(hdkeypath);
 }

@@ -1,4 +1,4 @@
-# Support for Output Descriptors in Bitcoin Core
+# Support for Output Descriptors in Litecoin Core
 
 Since Bitcoin Core v0.17, there is support for Output Descriptors. This is a
 simple language which can be used to describe collections of output scripts.
@@ -62,7 +62,8 @@ Output descriptors currently support:
 - `wsh(sortedmulti(1,xpub661MyMwAqRbcFW31YEwpkMuc5THy2PSt5bDMsktWQcFF8syAmRUapSCGu8ED9W6oDMSgv6Zz8idoc4a6mr8BDzTJY47LJhkJ8UB7WEGuduB/1/0/*,xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH/0/0/*))` describes a set of *1-of-2* P2WSH multisig outputs where one multisig key is the *1/0/`i`* child of the first specified xpub and the other multisig key is the *0/0/`i`* child of the second specified xpub, and `i` is any number in a configurable range (`0-1000` by default). The order of public keys in the resulting witnessScripts is determined by the lexicographic order of the public keys at that index.
 - `tr(c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5,{pk(fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556),pk(e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13)})` describes a P2TR output with the `c6...` x-only pubkey as internal key, and two script paths.
 - `tr(c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5,sortedmulti_a(2,2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4,5cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc))` describes a P2TR output with the `c6...` x-only pubkey as internal key, and a single `multi_a` script that needs 2 signatures with 2 specified x-only keys, which will be sorted lexicographically.
-- `mweb(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/0'/100'/x)` describes a range of MWEB stealth addresses. This is derived from the `master_scan_key` at `xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/0'/100'/0'` and `master_spend_key` at `xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/0'/100'/1'`.
+- `mweb([e18e7eb8/0'/100'/0']cVTGy3r3M1RMbBfPGnU6aLUzBtE5YLKCPapuxLXtbPYFbMTnBcxc,tpubD6NzVbkrYhZ4YcvHz6MNPfaYyjCjFgQKp427J6jnnjbtiEqkAowPMLnNY5KXeRgLZbAF8Gt5otHUCxacsZsUbtf7FudAFowwbLjKPajCM8F/0'/100'/1')` describes a range of MWEB stealth addresses. These addresses can be derived from the `master_scan_key` at `cVTGy3r3M1RMbBfPGnU6aLUzBtE5YLKCPapuxLXtbPYFbMTnBcxc` and `master_spend_key` at `tpubD6NzVbkrYhZ4YcvHz6MNPfaYyjCjFgQKp427J6jnnjbtiEqkAowPMLnNY5KXeRgLZbAF8Gt5otHUCxacsZsUbtf7FudAFowwbLjKPajCM8F/0'/100'/1'`.
+- `mweb([e18e7eb8/0'/100'/0']cVTGy3r3M1RMbBfPGnU6aLUzBtE5YLKCPapuxLXtbPYFbMTnBcxc,tpubD6NzVbkrYhZ4YcvHz6MNPfaYyjCjFgQKp427J6jnnjbtiEqkAowPMLnNY5KXeRgLZbAF8Gt5otHUCxacsZsUbtf7FudAFowwbLjKPajCM8F/0'/100'/1',4)` describes a single MWEB stealth addresses. The address can be derived from the `master_scan_key` at `cVTGy3r3M1RMbBfPGnU6aLUzBtE5YLKCPapuxLXtbPYFbMTnBcxc` and `master_spend_key` at `tpubD6NzVbkrYhZ4YcvHz6MNPfaYyjCjFgQKp427J6jnnjbtiEqkAowPMLnNY5KXeRgLZbAF8Gt5otHUCxacsZsUbtf7FudAFowwbLjKPajCM8F/0'/100'/1'` at address index `4`.
 
 ## Reference
 
@@ -83,7 +84,7 @@ Descriptors consist of several types of expressions. The top level expression is
 - `addr(ADDR)` (top level only): the script which ADDR expands to.
 - `raw(HEX)` (top level only): the script whose hex encoding is HEX.
 - `rawtr(KEY)` (top level only): P2TR output with the specified key as output key. NOTE: while it's possible to use this to construct wallets, it has several downsides, like being unable to prove no hidden script path exists. Use at your own risk.
-- `mweb(KEY)` (top level only): MWEB descriptor for stealth addresses, where `KEY` is an extended public key of the parent pubkey whose 0' derived child is the `master_scan_key` and 1' dervied child is the `master_spend_key`.
+- `mweb(SCAN_KEY,SPEND_KEY)` or `mweb(SCAN_KEY,SPEND_KEY,ADDR_INDEX)` (top level only): MWEB descriptor for stealth addresses, where `SCAN_KEY` is the ***private*** master scan key, and `SPEND_KEY` is the ***private*** OR ***public*** master spend key. `ADDR_INDEX` is the index of the address to derive. If not provided, a range of addresses is described.
 
 `KEY` expressions:
 - Optionally, key origin information, consisting of:
@@ -211,11 +212,7 @@ key.
 
 MWEB descriptors use the `mweb` function and provide a way to represent a
 range of stealth addresses. These addresses are derived from a `master_scan_key`
-and a `master_spend_key`, which in turn are derived from a given public key.
-
-The 0' child pubkey is the `master_scan_key` and the 1' child pubkey is the
-`master_spend_key`. Since these are both hardened keys, they cannot be computed
-without access to the corresponding private key.
+and a `master_spend_key`.
 
 ### Key origin identification
 

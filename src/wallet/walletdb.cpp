@@ -56,8 +56,6 @@ const std::string VERSION{"version"};
 const std::string WALLETDESCRIPTOR{"walletdescriptor"};
 const std::string WALLETDESCRIPTORCACHE{"walletdescriptorcache"};
 const std::string WALLETDESCRIPTORLHCACHE{"walletdescriptorlhcache"};
-const std::string WALLETDESCRIPTORMWEBSCANKEYCACHE{"walletdescriptormwebscankeycache"};
-const std::string WALLETDESCRIPTORMWEBSPENDPUBKEYCACHE{"walletdescriptormwebspendpubkeycache"};
 const std::string WALLETDESCRIPTORMWEBADDRESSCACHE{"walletdescriptormwebaddresscache"};
 const std::string WALLETDESCRIPTORCKEY{"walletdescriptorckey"};
 const std::string WALLETDESCRIPTORKEY{"walletdescriptorkey"};
@@ -70,6 +68,7 @@ const int CHDChain::VERSION_HD_BASE;
 const int CHDChain::VERSION_HD_CHAIN_SPLIT;
 const int CHDChain::VERSION_HD_MWEB;
 const int CHDChain::VERSION_HD_MWEB_WATCH;
+const int CHDChain::VERSION_HD_MWEB_RECEIVE;
 const int CHDChain::CURRENT_VERSION;
 
 //
@@ -281,16 +280,6 @@ bool WalletBatch::WriteDescriptorLastHardenedCache(const CExtPubKey& xpub, const
     return WriteIC(std::make_pair(std::make_pair(DBKeys::WALLETDESCRIPTORLHCACHE, desc_id), key_exp_index), ser_xpub);
 }
 
-bool WalletBatch::WriteDescriptorMWEBScanKeyCache(const uint256& desc_id, const SecretKey& scan_key)
-{
-    return WriteIC(std::make_pair(DBKeys::WALLETDESCRIPTORMWEBSCANKEYCACHE, desc_id), scan_key);
-}
-
-bool WalletBatch::WriteDescriptorMWEBSpendPubKeyCache(const uint256& desc_id, const PublicKey& spend_pubkey)
-{
-    return WriteIC(std::make_pair(DBKeys::WALLETDESCRIPTORMWEBSPENDPUBKEYCACHE, desc_id), spend_pubkey);
-}
-
 bool WalletBatch::WriteDescriptorMWEBAddressCache(const uint256& desc_id, const uint32_t idx, const StealthAddress& address)
 {
     return WriteIC(std::make_pair(std::make_pair(DBKeys::WALLETDESCRIPTORMWEBADDRESSCACHE, desc_id), idx), address);
@@ -312,18 +301,6 @@ bool WalletBatch::WriteDescriptorCacheItems(const uint256& desc_id, const Descri
     }
     for (const auto& lh_xpub_pair : cache.GetCachedLastHardenedExtPubKeys()) {
         if (!WriteDescriptorLastHardenedCache(lh_xpub_pair.second, desc_id, lh_xpub_pair.first)) {
-            return false;
-        }
-    }
-    std::optional<SecretKey> scan_key = cache.GetCachedMWEBScanKey();
-    if (scan_key) {
-        if (!WriteDescriptorMWEBScanKeyCache(desc_id, *scan_key)) {
-            return false;
-        }
-    }
-    std::optional<PublicKey> spend_pubkey = cache.GetCachedMWEBSpendPubKey();
-    if (spend_pubkey) {
-        if (!WriteDescriptorMWEBSpendPubKeyCache(desc_id, *spend_pubkey)) {
             return false;
         }
     }
@@ -664,7 +641,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
                 }
 
                 if (!!keyMeta.key_origin.hdkeypath.mweb_index) {
-                    chain.nVersion = std::max(chain.nVersion, CHDChain::VERSION_HD_MWEB_WATCH);
+                    chain.nVersion = std::max(chain.nVersion, CHDChain::VERSION_HD_MWEB_RECEIVE);
                     chain.nMWEBIndexCounter = std::max(chain.nMWEBIndexCounter, *keyMeta.key_origin.hdkeypath.mweb_index + 1);
                 } else if (internal) {
                     chain.nVersion = std::max(chain.nVersion, CHDChain::VERSION_HD_CHAIN_SPLIT);
@@ -823,22 +800,6 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
                 return false;
             }
             wss.m_descriptor_keys.insert(std::make_pair(std::make_pair(desc_id, pubkey.GetID()), key));
-        } else if (strType == DBKeys::WALLETDESCRIPTORMWEBSCANKEYCACHE) {
-            uint256 desc_id;
-            ssKey >> desc_id;
-
-            SecretKey scan_key;
-            ssValue >> scan_key;
-
-            wss.m_descriptor_caches[desc_id].CacheMWEBMasterScanKey(scan_key);
-        } else if (strType == DBKeys::WALLETDESCRIPTORMWEBSPENDPUBKEYCACHE) {
-            uint256 desc_id;
-            ssKey >> desc_id;
-
-            PublicKey spend_pubkey;
-            ssValue >> spend_pubkey;
-
-            wss.m_descriptor_caches[desc_id].CacheMWEBMasterSpendPubKey(spend_pubkey);
         } else if (strType == DBKeys::WALLETDESCRIPTORMWEBADDRESSCACHE) {
             uint256 desc_id;
             ssKey >> desc_id;

@@ -16,13 +16,7 @@ class Keychain
 public:
     using Ptr = std::shared_ptr<Keychain>;
 
-    Keychain(const wallet::ScriptPubKeyMan* spk_man, SecretKey scan_secret)
-        : m_spk_man(spk_man),
-          m_scanSecret(std::move(scan_secret)),
-          m_spendPubkey(std::nullopt),
-          m_spendSecret(std::nullopt) { }
-
-    Keychain(const wallet::ScriptPubKeyMan* spk_man, SecretKey scan_secret, PublicKey spend_pubkey)
+    Keychain(const wallet::ScriptPubKeyMan* spk_man, SecretKey scan_secret, std::optional<PublicKey> spend_pubkey)
         : m_spk_man(spk_man),
         m_scanSecret(std::move(scan_secret)),
         m_spendPubkey(std::move(spend_pubkey)),
@@ -45,7 +39,7 @@ public:
     // If the address index is known, it calculates from the keychain's master spend key.
     // If not, it attempts to lookup the spend key in the database.
     // Returns boost::empty when keychain is locked or watch-only.
-    std::optional<SecretKey> CalculateOutputKey(const mw::Coin& coin) const;
+    std::optional<SecretKey> CalculateOutputSpendKey(const mw::Coin& coin) const;
 
     // Calculates the StealthAddress at the given index.
     // Requires that keychain be unlocked and not watch-only.

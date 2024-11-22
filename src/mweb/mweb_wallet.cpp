@@ -20,7 +20,7 @@ bool Wallet::UpgradeCoins()
         if (wtx->mweb_wtx_info && wtx->mweb_wtx_info->received_coin) {
             mw::Coin& coin = *wtx->mweb_wtx_info->received_coin;
             if (!coin.HasSpendKey()) {
-                coin.spend_key = keychain->CalculateOutputKey(coin);
+                coin.spend_key = keychain->CalculateOutputSpendKey(coin);
 
                 // If spend key was populated, update the database and m_coins map.
                 if (coin.HasSpendKey()) {

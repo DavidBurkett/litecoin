@@ -1059,6 +1059,7 @@ void CheckDescriptorPrivate(const std::unique_ptr<Descriptor>& desc, const Signi
 
 static const int KEY_INDICES_TO_TEST = 1000;
 
+
 BOOST_AUTO_TEST_CASE(mweb_descriptor_test)
 {
     static const std::string xprv = "xprv9s21ZrQH143K31xYSDQpPDxsXRTUcvj2iNHm5NUtrGiGG5e2DtALGdso3pGz6ssrdK4PFmM8NSpSBHNqPqm55Qn3LqFtT2emdEXVYsCzC2U";
@@ -1068,8 +1069,12 @@ BOOST_AUTO_TEST_CASE(mweb_descriptor_test)
     CExtKey master_key, purpose_key, scan_key, spend_key;
     BOOST_REQUIRE(root_key.Derive(master_key, 0 | 0x80000000UL));
     BOOST_REQUIRE(master_key.Derive(purpose_key, 100 | 0x80000000UL));
-    BOOST_REQUIRE(purpose_key.Derive(scan_key, 0x80000000UL));
-    BOOST_REQUIRE(purpose_key.Derive(spend_key, 0x80000001UL));
+    BOOST_REQUIRE(purpose_key.Derive(scan_key, 0 | 0x80000000UL));
+    BOOST_REQUIRE(purpose_key.Derive(spend_key, 1 | 0x80000000UL));
+
+    CKeyID root_key_id = root_key.Neuter().pubkey.GetID();
+    std::string root_fingerprint = HexStr(Span(root_key_id.begin(), 4));
+
     auto keychain = std::make_shared<mw::Keychain>(
         nullptr,
         SecretKey(scan_key.key.begin()),
@@ -1078,19 +1083,18 @@ BOOST_AUTO_TEST_CASE(mweb_descriptor_test)
 
     FlatSigningProvider keys;
     std::string error;
-
-    // Ranged
-
-    auto desc_str = "mweb(" + xprv + "/0'/100'/*)";
+    auto desc_str = "mweb(" + xprv + "/0'/100'/0'," + xpub + "/0'/100'/1')";
     auto desc = Parse(desc_str, keys, error);
     BOOST_REQUIRE(desc);
-    CheckDescriptor(desc, "mweb(" + xpub + "/0'/100'/*)");
-    CheckDescriptorPrivate(desc, keys, desc_str);
+
+    const std::string scan_key_str = EncodeSecret(scan_key.key);
+    std::string expected_desc_str = "mweb([" + root_fingerprint + "/0'/100'/0']" + scan_key_str + "," + xpub + "/0'/100'/1')";
+    CheckDescriptor(desc, expected_desc_str);
+
+    std::string expected_private_desc_str = "mweb(" + xprv + "/0'/100'/0'," + xprv + "/0'/100'/1')";
+    CheckDescriptorPrivate(desc, keys, expected_private_desc_str);
     BOOST_CHECK(desc->GetOutputType() == OutputType::MWEB);
     BOOST_CHECK_EQUAL(desc->IsRange(), true);
-
-    CKeyID root_key_id = root_key.Neuter().pubkey.GetID();
-    std::string fingerprint = HexStr(Span(root_key_id.begin(), 4));
 
     std::vector<GenericAddress> output_addresses;
     DescriptorCache cache;
@@ -1113,8 +1117,8 @@ BOOST_AUTO_TEST_CASE(mweb_descriptor_test)
 
         // Check key origin
         BOOST_CHECK(keys.GetKeyOrigin(key_id, origin_info));
-        BOOST_CHECK_EQUAL(HexStr(origin_info.fingerprint), fingerprint);
-        BOOST_CHECK_EQUAL(WriteHDKeypath(origin_info.hdkeypath), strprintf("m/0'/100'/x/%d", pos));
+        BOOST_CHECK_EQUAL(HexStr(origin_info.fingerprint), root_fingerprint);
+        BOOST_CHECK_EQUAL(WriteHDKeypath(origin_info.hdkeypath), strprintf("x/%d", pos));
 
         // Test that secret key is available after ExpandPrivate
         BOOST_CHECK(!keys.GetKey(key_id, key));
@@ -1139,59 +1143,29 @@ BOOST_AUTO_TEST_CASE(mweb_descriptor_test)
 
         // Check key origin
         BOOST_CHECK(keys.GetKeyOrigin(key_id, origin_info));
-        BOOST_CHECK_EQUAL(HexStr(origin_info.fingerprint), fingerprint);
-        BOOST_CHECK_EQUAL(WriteHDKeypath(origin_info.hdkeypath), strprintf("m/0'/100'/x/%d", pos));
+        BOOST_CHECK_EQUAL(HexStr(origin_info.fingerprint), root_fingerprint);
+        BOOST_CHECK_EQUAL(WriteHDKeypath(origin_info.hdkeypath), strprintf("x/%d", pos));
     }
 
-    desc_str = "mweb(" + xpub + "/0'/100'/*)";
-    desc = Parse(desc_str, keys, error);
-    BOOST_REQUIRE(desc);
-    CheckDescriptor(desc, desc_str);
-
     // Fixed index
-
     for (int pos = 0; pos < KEY_INDICES_TO_TEST; pos++) {
-        desc_str = "mweb(" + xprv + "/0'/100'/*," + std::to_string(pos) + ")";
+        desc_str = "mweb(" + xprv + "/0'/100'/0'," + xprv + "/0'/100'/1'," + std::to_string(pos) + ")";
         desc = Parse(desc_str, keys, error);
         BOOST_REQUIRE(desc);
-        CheckDescriptor(desc, "mweb(" + xpub + "/0'/100'/*," + std::to_string(pos) + ")");
-        CheckDescriptorPrivate(desc, keys, desc_str);
+        expected_desc_str = "mweb([" + root_fingerprint + "/0'/100'/0']" + scan_key_str + "," + xpub + "/0'/100'/1'," + std::to_string(pos) + ")";
+        CheckDescriptor(desc, expected_desc_str);
+        expected_private_desc_str = "mweb(" + xprv + "/0'/100'/0'," + xprv + "/0'/100'/1'," + std::to_string(pos) + ")";
+        CheckDescriptorPrivate(desc, keys, expected_private_desc_str);
         BOOST_CHECK(desc->GetOutputType() == OutputType::MWEB);
         BOOST_CHECK_EQUAL(desc->IsRange(), false);
-
+    
         BOOST_REQUIRE(desc->Expand(0, keys, output_addresses, keys, &cache));
         BOOST_CHECK(output_addresses[0] == keychain->GetStealthAddress(pos));
         BOOST_REQUIRE(desc->ExpandFromCache(0, cache, output_addresses, keys));
         BOOST_CHECK(output_addresses[0] == keychain->GetStealthAddress(pos));
     }
 
-    // Constant
-
-    for (int pos = 0; pos < KEY_INDICES_TO_TEST; pos++) {
-        StealthAddress mweb_addr = keychain->GetStealthAddress(pos);
-        CPubKey scan_pubkey(mweb_addr.GetScanPubKey().vec());
-        CPubKey spend_pubkey(mweb_addr.GetSpendPubKey().vec());
-        desc_str = "mweb(" + HexStr(scan_pubkey) + "," + HexStr(spend_pubkey) + ")";
-        desc = Parse(desc_str, keys, error);
-        BOOST_REQUIRE(desc);
-        CheckDescriptor(desc, desc_str);
-        BOOST_CHECK(!desc->ToPrivateString(keys, error));
-        BOOST_CHECK(desc->GetOutputType() == OutputType::MWEB);
-        BOOST_CHECK_EQUAL(desc->IsRange(), false);
-        BOOST_REQUIRE(desc->Expand(0, keys, output_addresses, keys, nullptr));
-        BOOST_CHECK(output_addresses[0] == mweb_addr);
-
-        // Inferred
-
-        desc = InferDescriptor(mweb_addr, DUMMY_SIGNING_PROVIDER);
-        BOOST_REQUIRE(desc);
-        CheckDescriptor(desc, desc_str);
-        BOOST_CHECK(!desc->ToPrivateString(keys, error));
-        BOOST_CHECK(desc->GetOutputType() == OutputType::MWEB);
-        BOOST_CHECK_EQUAL(desc->IsRange(), false);
-        BOOST_REQUIRE(desc->Expand(0, keys, output_addresses, keys, nullptr));
-        BOOST_CHECK(output_addresses[0] == mweb_addr);
-    }
+    // MW: TODO - Test InferDescriptor
 }
 
 BOOST_AUTO_TEST_SUITE_END()

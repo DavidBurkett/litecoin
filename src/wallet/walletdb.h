@@ -101,16 +101,18 @@ public:
     uint32_t nInternalChainCounter;
     uint32_t nMWEBIndexCounter;
     CKeyID seed_id; //!< seed hash160
-    std::optional<SecretKey> mweb_scan_key;  // MW: TODO - Also include spend_pubkey
+    std::optional<SecretKey> mweb_scan_key; // Can be used to identify MWEB outputs belonging to the wallet
+    std::optional<PublicKey> mweb_spend_pubkey; // Can be used to generate new MWEB stealth addresses
     int64_t m_next_external_index{0}; // Next index in the keypool to be used. Memory only.
     int64_t m_next_internal_index{0}; // Next index in the keypool to be used. Memory only.
     int64_t m_next_mweb_index{0}; // Next index in the keypool to be used. Memory only.
 
-    static const int VERSION_HD_BASE        = 1;
-    static const int VERSION_HD_CHAIN_SPLIT = 2;
-    static const int VERSION_HD_MWEB        = 3;
-    static const int VERSION_HD_MWEB_WATCH  = 4;
-    static const int CURRENT_VERSION        = VERSION_HD_MWEB_WATCH;
+    static const int VERSION_HD_BASE            = 1;
+    static const int VERSION_HD_CHAIN_SPLIT     = 2;
+    static const int VERSION_HD_MWEB            = 3; // Includes MWEB counter
+    static const int VERSION_HD_MWEB_WATCH      = 4; // Includes MWEB counter & scan key
+    static const int VERSION_HD_MWEB_RECEIVE    = 5; // Includes MWEB counter, scan key, & spend pubkey
+    static const int CURRENT_VERSION = VERSION_HD_MWEB_RECEIVE;
     int nVersion;
 
     CHDChain() { SetNull(); }
@@ -129,6 +131,10 @@ public:
         if (obj.nVersion >= VERSION_HD_MWEB_WATCH) {
             READWRITE(obj.mweb_scan_key);
         }
+
+        if (obj.nVersion >= VERSION_HD_MWEB_RECEIVE) {
+            READWRITE(obj.mweb_spend_pubkey);
+        }
     }
 
     void SetNull()
@@ -139,6 +145,7 @@ public:
         nMWEBIndexCounter = 0;
         seed_id.SetNull();
         mweb_scan_key = std::nullopt;
+        mweb_spend_pubkey = std::nullopt;
     }
 
     bool operator==(const CHDChain& chain) const
@@ -288,8 +295,6 @@ public:
     bool WriteDescriptorDerivedCache(const CExtPubKey& xpub, const uint256& desc_id, uint32_t key_exp_index, uint32_t der_index);
     bool WriteDescriptorParentCache(const CExtPubKey& xpub, const uint256& desc_id, uint32_t key_exp_index);
     bool WriteDescriptorLastHardenedCache(const CExtPubKey& xpub, const uint256& desc_id, uint32_t key_exp_index);
-    bool WriteDescriptorMWEBScanKeyCache(const uint256& desc_id, const SecretKey& scan_key);
-    bool WriteDescriptorMWEBSpendPubKeyCache(const uint256& desc_id, const PublicKey& spend_pubkey);
     bool WriteDescriptorMWEBAddressCache(const uint256& desc_id, const uint32_t idx, const StealthAddress& address);
     bool WriteDescriptorCacheItems(const uint256& desc_id, const DescriptorCache& cache);
 

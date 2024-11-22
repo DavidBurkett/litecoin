@@ -61,12 +61,12 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::Coin& coin) const
     coin.output_id = output.GetOutputID();
     coin.address = address;
     coin.shared_secret = std::make_optional(std::move(t));
-    coin.spend_key = CalculateOutputKey(coin);
+    coin.spend_key = CalculateOutputSpendKey(coin);
 
     return true;
 }
 
-std::optional<SecretKey> Keychain::CalculateOutputKey(const mw::Coin& coin) const
+std::optional<SecretKey> Keychain::CalculateOutputSpendKey(const mw::Coin& coin) const
 {
     if (!m_spk_man) {
         return std::nullopt;

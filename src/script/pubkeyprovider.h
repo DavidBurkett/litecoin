@@ -46,6 +46,8 @@ public:
      */
     virtual bool GetPubKey(int pos, const SigningProvider& arg, CPubKey& key, KeyOriginInfo& info, const DescriptorCache* read_cache = nullptr, DescriptorCache* write_cache = nullptr) const = 0;
 
+    virtual bool GetKeyOrigin(int pos, KeyOriginInfo& info) const = 0;
+
     /** Whether this represent multiple public keys at different positions. */
     virtual bool IsRange() const = 0;
 
@@ -72,13 +74,7 @@ class OriginPubkeyProvider final : public PubkeyProvider
 
     std::string OriginString() const
     {
-        std::string origin_string = HexStr(m_origin.fingerprint) + FormatHDKeypath(m_origin.hdkeypath);
-
-        if (m_origin.hdkeypath.mweb_index.has_value()) {
-            origin_string += "/x/" + std::to_string(m_origin.hdkeypath.mweb_index.value());
-        }
-
-        return origin_string;
+        return HexStr(m_origin.fingerprint) + FormatHDKeypath(m_origin.hdkeypath);
     }
 
 public:
@@ -86,6 +82,13 @@ public:
     bool GetPubKey(int pos, const SigningProvider& arg, CPubKey& key, KeyOriginInfo& info, const DescriptorCache* read_cache = nullptr, DescriptorCache* write_cache = nullptr) const override
     {
         if (!m_provider->GetPubKey(pos, arg, key, info, read_cache, write_cache)) return false;
+        std::copy(std::begin(m_origin.fingerprint), std::end(m_origin.fingerprint), info.fingerprint);
+        info.hdkeypath.path.insert(info.hdkeypath.path.begin(), m_origin.hdkeypath.path.begin(), m_origin.hdkeypath.path.end());
+        return true;
+    }
+    bool GetKeyOrigin(int pos, KeyOriginInfo& info) const override
+    {
+        if (!m_provider->GetKeyOrigin(pos, info)) return false;
         std::copy(std::begin(m_origin.fingerprint), std::end(m_origin.fingerprint), info.fingerprint);
         info.hdkeypath.path.insert(info.hdkeypath.path.begin(), m_origin.hdkeypath.path.begin(), m_origin.hdkeypath.path.end());
         return true;
@@ -132,6 +135,13 @@ public:
     bool GetPubKey(int pos, const SigningProvider& arg, CPubKey& key, KeyOriginInfo& info, const DescriptorCache* read_cache = nullptr, DescriptorCache* write_cache = nullptr) const override
     {
         key = m_pubkey;
+        info.hdkeypath.path.clear();
+        CKeyID keyid = m_pubkey.GetID();
+        std::copy(keyid.begin(), keyid.begin() + sizeof(info.fingerprint), info.fingerprint);
+        return true;
+    }
+    bool GetKeyOrigin(int pos, KeyOriginInfo& info) const override
+    {
         info.hdkeypath.path.clear();
         CKeyID keyid = m_pubkey.GetID();
         std::copy(keyid.begin(), keyid.begin() + sizeof(info.fingerprint), info.fingerprint);
@@ -280,6 +290,23 @@ public:
                 write_cache->CacheDerivedExtPubKey(m_expr_index, pos, final_extkey);
             }
         }
+
+        return true;
+    }
+    bool GetKeyOrigin(int pos, KeyOriginInfo& final_info_out) const override
+    {
+        // Info of parent of the to be derived pubkey
+        KeyOriginInfo parent_info;
+        CKeyID keyid = m_root_extkey.pubkey.GetID();
+        std::copy(keyid.begin(), keyid.begin() + sizeof(parent_info.fingerprint), parent_info.fingerprint);
+        parent_info.hdkeypath = m_path;
+
+        // Info of the derived key itself which is copied out upon successful completion
+        KeyOriginInfo final_info_out_tmp = parent_info;
+        if (m_derive == DeriveType::UNHARDENED) final_info_out_tmp.hdkeypath.path.push_back((uint32_t)pos);
+        if (m_derive == DeriveType::HARDENED) final_info_out_tmp.hdkeypath.path.push_back(((uint32_t)pos) | 0x80000000L);
+
+        final_info_out = final_info_out_tmp;
 
         return true;
     }
