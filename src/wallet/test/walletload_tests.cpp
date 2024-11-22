@@ -22,7 +22,6 @@ public:
     std::optional<OutputType> GetOutputType() const override { return OutputType::UNKNOWN; }
 
     bool IsRange() const override { return false; }
-    bool IsMWEB() const override { return false; }
     bool IsSolvable() const override { return false; }
     bool IsSingleType() const override { return true; }
     bool ToPrivateString(const SigningProvider& provider, std::string& out) const override { return false; }
