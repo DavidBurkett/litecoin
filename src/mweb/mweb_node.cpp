@@ -173,6 +173,7 @@ bool Node::ConnectBlock(const CBlock& block, const Consensus::Params& consensus_
         if (!is_first_hogex) {
             const COutPoint& prev_hogex_out = pHogEx->vin.front().prevout;
             if (prev_hogex_out.n != 0 || pindexPrev->hogex_hash != prev_hogex_out.hash) {
+                LogPrintf("DEBUG: invalid-hogex-input - pHogEx->GetHash(): %s, prev_hogex_out.n: %d, prev_hogex_out.hash: %s, pindexPrev->hogex_hash: %s, pindexPrev->mweb_amount: %lld\n", pHogEx->GetHash().GetHex(), prev_hogex_out.n, prev_hogex_out.hash.GetHex(), pindexPrev->hogex_hash.GetHex(), pindexPrev->mweb_amount);
                 return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "invalid-hogex-input", "First input of HogEx does not point to previous HogEx");
             }
         }

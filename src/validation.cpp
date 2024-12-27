@@ -2003,6 +2003,14 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
     assert(*pindex->phashBlock == block.GetHash());
     int64_t nTimeStart = GetTimeMicros();
 
+    LogPrintf(
+        "DEBUG: ConnectBlock(): block_hash: %s, prev_index.hash: %s, prev_index.hogex_hash: %s, fJustCheck: %d\n",
+        pindex->GetBlockHash().ToString(),
+        pindex->pprev == nullptr ? uint256().GetHex() : pindex->pprev->GetBlockHash().GetHex(),
+        pindex->pprev == nullptr ? uint256().GetHex() : pindex->pprev->hogex_hash.GetHex(),
+        fJustCheck ? 1 : 0
+    );
+
     // Check it again in case a previous version let a bad block in
     // NOTE: We don't currently (re-)invoke ContextualCheckBlock() or
     // ContextualCheckBlockHeader() here. This means that if we add a new
@@ -2293,6 +2301,7 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
             pindex->hogex_hash = pHogEx->GetHash();
             pindex->mweb_amount = pHogEx->vout.front().nValue;
             setDirtyBlockIndex.insert(pindex);
+            LogPrintf("DEBUG: Setting hogex_hash to %s for BlockIndex %s\n", pHogEx->GetHash().GetHex(), pindex->GetBlockHash().GetHex());
         }
     }
 
@@ -2708,6 +2717,7 @@ bool CChainState::ConnectTip(BlockValidationState& state, const CChainParams& ch
     LogPrint(BCLog::BENCH, "  - Load block from disk: %.2fms [%.2fs]\n", (nTime2 - nTime1) * MILLI, nTimeReadFromDisk * MICRO);
     {
         CCoinsViewCache view(&CoinsTip());
+        LogPrintf("DEBUG: Calling ConnectBlock from ConnectTip\n");
         bool rv = ConnectBlock(blockConnecting, state, pindexNew, view, chainparams);
         GetMainSignals().BlockChecked(blockConnecting, state);
         if (!rv) {
@@ -3085,6 +3095,7 @@ bool ActivateArbitraryChain(BlockValidationState& state, CCoinsViewCache& view, 
             return error("ActivateArbitraryChain(): Failed to read block %s", pindexConnect->GetBlockHash().ToString());
         }
 
+        LogPrintf("DEBUG: Calling ConnectBlock from ActivateArbitraryChain\n");
         if (!::ChainstateActive().ConnectBlock(block, state, pindexConnect, view, chainparams, true)) {
             return error("ActivateArbitraryChain(): ConnectBlock %s failed", pindexConnect->GetBlockHash().ToString());
         }
@@ -4035,6 +4046,8 @@ bool TestBlockValidity(BlockValidationState& state, const CChainParams& chainpar
         return error("%s: Consensus::CheckBlock: %s", __func__, state.ToString());
     if (!ContextualCheckBlock(block, state, chainparams.GetConsensus(), pindexPrev))
         return error("%s: Consensus::ContextualCheckBlock: %s", __func__, state.ToString());
+
+    LogPrintf("DEBUG: Calling ConnectBlock from TestBlockValidity\n");
     if (!::ChainstateActive().ConnectBlock(block, state, &indexDummy, viewNew, chainparams, true))
         return false;
     assert(state.IsValid());
@@ -4493,6 +4506,8 @@ bool CVerifyDB::VerifyDB(const CChainParams& chainparams, CCoinsView *coinsview,
             CBlock block;
             if (!ReadBlockFromDisk(block, pindex, chainparams.GetConsensus()))
                 return error("VerifyDB(): *** ReadBlockFromDisk failed at %d, hash=%s", pindex->nHeight, pindex->GetBlockHash().ToString());
+
+            LogPrintf("DEBUG: Calling ConnectBlock from VerifyDB\n");
             if (!::ChainstateActive().ConnectBlock(block, state, pindex, coins, chainparams))
                 return error("VerifyDB(): *** found unconnectable block at %d, hash=%s (%s)", pindex->nHeight, pindex->GetBlockHash().ToString(), state.ToString());
             if (ShutdownRequested()) return true;
