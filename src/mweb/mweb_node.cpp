@@ -36,6 +36,7 @@ bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& co
             return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "unexpected-mweb-data", "MWEB not activated, but extension block found");
         }
 
+        LogPrintf("DEBUG: MWEB not enabled for block %s (prev: %s, pindexPrev->hogex_hash: %s, pindexPrev->mweb_amount: %lld)\n", block.GetHash().GetHex(), pindexPrev->GetBlockHash().GetHex(), pindexPrev->hogex_hash.GetHex(), pindexPrev->mweb_amount);
         return true;
     } else if (block.mweb_block.IsNull()) {
         return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "mweb-missing", "MWEB activated but extension block not found");

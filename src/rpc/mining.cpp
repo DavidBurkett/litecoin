@@ -128,6 +128,8 @@ static bool GenerateBlock(ChainstateManager& chainman, CBlock& block, uint64_t& 
     }
 
     std::shared_ptr<const CBlock> shared_pblock = std::make_shared<const CBlock>(block);
+
+    LogPrintf("GenerateBlock: Calling ProcessNewBlock for block %s\n", shared_pblock->GetHash().GetHex());
     if (!chainman.ProcessNewBlock(chainparams, shared_pblock, true, nullptr)) {
         throw JSONRPCError(RPC_INTERNAL_ERROR, "ProcessNewBlock, block not accepted");
     }
@@ -384,6 +386,7 @@ static RPCHelpMan generateblock()
         LOCK(cs_main);
 
         BlockValidationState state;
+        LogPrintf("[generateblock] Calling TestBlockValidity for block %s\n", block.GetHash().GetHex());
         if (!TestBlockValidity(state, chainparams, block, LookupBlockIndex(block.hashPrevBlock), false, false)) {
             throw JSONRPCError(RPC_VERIFY_ERROR, strprintf("TestBlockValidity failed: %s", state.ToString()));
         }
@@ -601,6 +604,8 @@ static RPCHelpMan getblocktemplate()
 {
     LOCK(cs_main);
 
+    LogPrintf("[GBT] request: %s\n", request.params.write());
+
     std::string strMode = "template";
     UniValue lpval = NullUniValue;
     std::set<std::string> setClientRules;
@@ -644,7 +649,19 @@ static RPCHelpMan getblocktemplate()
             if (block.hashPrevBlock != pindexPrev->GetBlockHash())
                 return "inconclusive-not-best-prevblk";
             BlockValidationState state;
-            TestBlockValidity(state, Params(), block, pindexPrev, false, true);
+            LogPrintf("[GBT] PROPOSAL: Calling TestBlockValidity for block: %s\n", block.GetHash().GetHex());
+            bool is_valid = TestBlockValidity(state, Params(), block, pindexPrev, false, true);
+            LogPrintf(
+                "[GBT] PROPOSAL: (TestBlockValidity valid: %d, status: %s) - (block.hash: %s, has_mweb: %d, pindex->status: %u, pindexPrev->hash: %s, pindexPrev->nStatus: %u, pindexPrev->mweb_amount: %lld)\n",
+                is_valid ? 1 : 0,
+                state.ToString(),
+                block.GetHash().GetHex(),
+                block.mweb_block.IsNull() ? 0 : 1,
+                pindex->nStatus,
+                pindexPrev->GetBlockHash().GetHex(),
+                pindexPrev->nStatus,
+                pindexPrev->mweb_amount
+            );
             return BIP22ValidationResult(state);
         }
 
@@ -910,6 +927,8 @@ static RPCHelpMan getblocktemplate()
         result.pushKV("mweb", HexStr(mweb_block.m_block->Serialized()));
     }
 
+    LogPrintf("[GBT] result: %s\n", result.write());
+
     return result;
 },
     };
@@ -950,13 +969,16 @@ static RPCHelpMan submitblock()
                 },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
+    LogPrintf("[SUBMIT] request: %s\n", request.params.write());
     std::shared_ptr<CBlock> blockptr = std::make_shared<CBlock>();
     CBlock& block = *blockptr;
     if (!DecodeHexBlk(block, request.params[0].get_str())) {
+        LogPrintf("[SUBMIT] Block decode failed\n");
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block decode failed");
     }
 
     if (block.vtx.empty() || !block.vtx[0]->IsCoinBase()) {
+        LogPrintf("[SUBMIT] Block does not start with a coinbase\n");
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block does not start with a coinbase");
     }
 
@@ -985,6 +1007,7 @@ static RPCHelpMan submitblock()
     bool new_block;
     auto sc = std::make_shared<submitblock_StateCatcher>(block.GetHash());
     RegisterSharedValidationInterface(sc);
+    LogPrintf("[SUBMIT] Calling ProcessNewBlock with block %s\n", block.GetHash().GetHex());
     bool accepted = EnsureChainman(request.context).ProcessNewBlock(Params(), blockptr, /* fForceProcessing */ true, /* fNewBlock */ &new_block);
     UnregisterSharedValidationInterface(sc);
     if (!new_block && accepted) {
@@ -993,6 +1016,7 @@ static RPCHelpMan submitblock()
     if (!sc->found) {
         return "inconclusive";
     }
+    LogPrintf("[SUBMIT] result state: %s\n", sc->state.ToString());
     return BIP22ValidationResult(sc->state);
 },
     };

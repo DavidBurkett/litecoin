@@ -2004,7 +2004,7 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
     int64_t nTimeStart = GetTimeMicros();
 
     LogPrintf(
-        "DEBUG: ConnectBlock(): block_hash: %s, prev_index.hash: %s, prev_index.hogex_hash: %s, fJustCheck: %d\n",
+        "[ConnectBlock] block_hash: %s, prev_index.hash: %s, prev_index.hogex_hash: %s, fJustCheck: %d\n",
         pindex->GetBlockHash().ToString(),
         pindex->pprev == nullptr ? uint256().GetHex() : pindex->pprev->GetBlockHash().GetHex(),
         pindex->pprev == nullptr ? uint256().GetHex() : pindex->pprev->hogex_hash.GetHex(),
@@ -2286,13 +2286,17 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
 
     // MWEB: Check activation
     if (!MWEB::Node::ConnectBlock(block, chainparams.GetConsensus(), pindex->pprev, blockundo, *view.GetMWEBCacheView(), state)) {
+        LogPrintf("[ConnectBlock] MWEB::Node::ConnectBlock failed for block %s, state: %s\n", block.GetHash().GetHex(), state.ToString());
         return false;
     }
 
-    if (fJustCheck)
+    if (fJustCheck) {
+        LogPrintf("[ConnectBlock] fJustCheck: true for block: %s, returning\n", block.GetHash().GetHex());
         return true;
+    }
 
     // MWEB: Update BlockIndex
+    LogPrintf("[ConnectBlock]  %s: mweb_block.IsNull(): %d, pindex->nStatus: %u\n", pindex->GetBlockHash().GetHex(), block.mweb_block.IsNull() ? 1 : 0, pindex->nStatus);
     if (!block.mweb_block.IsNull()) {
         auto pHogEx = block.GetHogEx();
         if ((pindex->nStatus & BLOCK_HAVE_MWEB) == 0) {
@@ -2301,7 +2305,7 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
             pindex->hogex_hash = pHogEx->GetHash();
             pindex->mweb_amount = pHogEx->vout.front().nValue;
             setDirtyBlockIndex.insert(pindex);
-            LogPrintf("DEBUG: Setting hogex_hash to %s for BlockIndex %s\n", pHogEx->GetHash().GetHex(), pindex->GetBlockHash().GetHex());
+            LogPrintf("[ConnectBlock] Setting hogex_hash to %s for BlockIndex %s\n", pHogEx->GetHash().GetHex(), pindex->GetBlockHash().GetHex());
         }
     }
 
@@ -3769,6 +3773,7 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
     }
 
     if (!MWEB::Node::ContextualCheckBlock(block, consensusParams, pindexPrev, state)) {
+        LogPrintf("MWEB::ContextualCheckBlock FAILED: (%s) - (block.hash: %s, has_mweb: %d, pindexPrev->hash: %s, pindexPrev->mweb_amount: %lld)\n", state.ToString(), block.GetHash().GetHex(), block.mweb_block.IsNull() ? 0 : 1, pindexPrev->GetBlockHash().GetHex(), pindexPrev->mweb_amount);
         return false;
     }
 
@@ -4039,17 +4044,33 @@ bool TestBlockValidity(BlockValidationState& state, const CChainParams& chainpar
     indexDummy.nHeight = pindexPrev->nHeight + 1;
     indexDummy.phashBlock = &block_hash;
 
-    // NOTE: CheckBlockHeader is called by CheckBlock
-    if (!ContextualCheckBlockHeader(block, state, chainparams, pindexPrev, GetAdjustedTime()))
-        return error("%s: Consensus::ContextualCheckBlockHeader: %s", __func__, state.ToString());
-    if (!CheckBlock(block, state, chainparams.GetConsensus(), fCheckPOW, fCheckMerkleRoot))
-        return error("%s: Consensus::CheckBlock: %s", __func__, state.ToString());
-    if (!ContextualCheckBlock(block, state, chainparams.GetConsensus(), pindexPrev))
-        return error("%s: Consensus::ContextualCheckBlock: %s", __func__, state.ToString());
+    
+    LogPrintf("[TestBlockValidity] Called for block: %s, fCheckPOW: %d, fCheckMerkleRoot: %d, pindexPrev->hash: %s, pindexPrev->nStatus: %u, pindexPrev->mweb_amount: %lld\n", block.GetHash().GetHex(), fCheckPOW ? 1 : 0, fCheckMerkleRoot ? 1 : 0, pindexPrev->GetBlockHash().GetHex(), pindexPrev->nStatus, pindexPrev->mweb_amount);
 
-    LogPrintf("DEBUG: Calling ConnectBlock from TestBlockValidity\n");
-    if (!::ChainstateActive().ConnectBlock(block, state, &indexDummy, viewNew, chainparams, true))
+    // NOTE: CheckBlockHeader is called by CheckBlock
+    LogPrintf("[TestBlockValidity] Calling ContextualCheckBlockHeader for block %s\n", block.GetHash().GetHex());
+    if (!ContextualCheckBlockHeader(block, state, chainparams, pindexPrev, GetAdjustedTime())) {
+        LogPrintf("[TestBlockValidity] ContextualCheckBlockHeader failed for block %s, state: %s\n", block.GetHash().GetHex(), state.ToString());
+        return error("%s: Consensus::ContextualCheckBlockHeader: %s", __func__, state.ToString());
+    }
+
+    LogPrintf("[TestBlockValidity] Calling CheckBlock for block %s\n", block.GetHash().GetHex());
+    if (!CheckBlock(block, state, chainparams.GetConsensus(), fCheckPOW, fCheckMerkleRoot)) {
+        LogPrintf("[TestBlockValidity] CheckBlock failed for block %s, state: %s\n", block.GetHash().GetHex(), state.ToString());
+        return error("%s: Consensus::CheckBlock: %s", __func__, state.ToString());
+    }
+
+    LogPrintf("[TestBlockValidity] Calling ContextualCheckBlock for block %s\n", block.GetHash().GetHex());
+    if (!ContextualCheckBlock(block, state, chainparams.GetConsensus(), pindexPrev)) {
+        LogPrintf("[TestBlockValidity] ContextualCheckBlock failed for block %s, state: %s\n", block.GetHash().GetHex(), state.ToString());
+        return error("%s: Consensus::ContextualCheckBlock: %s", __func__, state.ToString());
+    }
+
+    LogPrintf("[TestBlockValidity] Calling ConnectBlock for block %s\n", block.GetHash().GetHex());
+    if (!::ChainstateActive().ConnectBlock(block, state, &indexDummy, viewNew, chainparams, true)) {
+        LogPrintf("[TestBlockValidity] ConnectBlock failed for block %s, state: %s\n", block.GetHash().GetHex(), state.ToString());
         return false;
+    }
     assert(state.IsValid());
 
     return true;
