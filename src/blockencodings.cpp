@@ -211,6 +211,16 @@ ReadStatus PartiallyDownloadedBlock::FillBlock(CBlock& block, const std::vector<
     if (vtx_missing.size() != tx_missing_offset)
         return READ_STATUS_INVALID;
 
+    // We need to clear the MWEB transaction data from the block's transactions,
+    // which should already be included in the mweb_block.
+    for (size_t i = 0; i < block.vtx.size(); i++) {
+        if (block.vtx[i]->HasMWEBTx()) {
+            CMutableTransaction mutable_tx(*block.vtx[i]);
+            mutable_tx.mweb_tx.SetNull();
+            block.vtx[i] = MakeTransactionRef(std::move(mutable_tx));
+        }
+    }
+
     BlockValidationState state;
     CheckBlockFn check_block = m_check_block_mock ? m_check_block_mock : CheckBlock;
     if (!check_block(block, state, Params().GetConsensus(), /*fCheckPoW=*/true, /*fCheckMerkleRoot=*/true)) {
